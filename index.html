@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 投研分析智能体 · 二级市场版 Web Demo</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <h1>AI 投研分析智能体<span class="ver">· 二级市场版</span></h1>
+    <div class="sub">找数据 → 读研报 → 记知识 → 写简报 · 引用可溯源 · 结论带置信度 · 简报需人工确认后发布</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="stats" id="stats"></div>
+  <button class="btn primary" id="btnRunWF">立即执行每日监控</button>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h3>标的池</h3>
+    <div id="universe"></div>
+    <h3 style="margin-top:16px">订阅赛道（定时任务）</h3>
+    <div id="subList"></div>
+    <div class="hint">示例问题（点击直接提问）：</div>
+    <div id="samples"></div>
+    <div class="hint" style="margin-top:14px">全部公司、机构与数据均为演示用虚构数据，不构成投资建议。</div>
+  </aside>
+
+  <main class="main">
+    <nav class="tabs">
+      <button class="tab active" data-tab="chat">对话工作台</button>
+      <button class="tab" data-tab="tools">工具与调用链路</button>
+      <button class="tab" data-tab="rag">RAG 知识库</button>
+      <button class="tab" data-tab="wf">每日监控工作流</button>
+      <button class="tab" data-tab="review">简报审校与发布</button>
+      <button class="tab" data-tab="design">设计与边界</button>
+    </nav>
+
+    <!-- ============ 对话工作台 ============ -->
+    <section id="tab-chat">
+      <div class="chat-wrap">
+        <div class="chat-panel">
+          <div class="chat-scroll" id="chatScroll">
+            <div class="msg bot">
+              <div class="bubble">
+                <b>投研 Agent 已就绪</b><br>
+                我可以帮你：① 拉取财务/行情/工商数据 ② 检索私有研报库并给出可溯源结论 ③ 梳理产业链 ④ 做同业对比与估值情景测算 ⑤ 每日自动生成行业动态简报。<br>
+                <span class="dim">每个回答都会标注引用的原文出处与置信度；低于阈值的结论我会明确提示需人工复核。</span>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input">
+            <textarea id="qInput" placeholder="例如：星海智造最新业绩怎么样？ALD 设备进展到哪一步了"></textarea>
+            <button class="btn primary" id="btnAsk">发送</button>
+          </div>
+        </div>
+        <div class="trace-panel">
+          <div class="trace-head">Agent Trace · 执行链路</div>
+          <div id="trace" class="trace-body">
+            <div class="empty-sm">发起提问后，这里会展示：意图识别 → 工具调用计划 → 逐步执行 → 置信度拆解</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 工具与调用链路 ============ -->
+    <section id="tab-tools" style="display:none">
+      <div class="section-title">工具注册表（Function Calling / MCP 声明）</div>
+      <div class="tools-grid" id="toolCards"></div>
+      <div class="section-title">调用日志 <span class="dim" id="logMeta"></span></div>
+      <div class="filters">
+        <select id="logFilter">
+          <option value="">全部状态</option>
+          <option value="ok">成功</option>
+          <option value="error">失败</option>
+        </select>
+        <button class="btn small" id="btnClearLog">清空日志</button>
+        <button class="btn small" id="btnFault">注入一次上游故障</button>
+      </div>
+      <div id="logTable"></div>
+    </section>
+
+    <!-- ============ RAG 知识库 ============ -->
+    <section id="tab-rag" style="display:none">
+      <div class="section-title">索引状态</div>
+      <div class="kv-grid" id="ragStats"></div>
+
+      <div class="section-title">检索调试台（BM25 + 向量 → RRF 融合 → 重排）</div>
+      <div class="rag-bar">
+        <input id="ragQ" placeholder="输入检索问题，如：恒川新能加工费下跌和减值怎么看" style="flex:1">
+        <select id="ragK">
+          <option value="3">top 3</option>
+          <option value="5" selected>top 5</option>
+          <option value="8">top 8</option>
+        </select>
+        <button class="btn primary" id="btnRag">检索</button>
+      </div>
+      <div class="chips" id="ragChips"></div>
+      <div id="ragResult"></div>
+
+      <div class="section-title">文档切片（解析 → 分块结果）</div>
+      <div class="filters">
+        <select id="docFilter"></select>
+      </div>
+      <div id="chunkList"></div>
+    </section>
+
+    <!-- ============ 工作流 ============ -->
+    <section id="tab-wf" style="display:none">
+      <div class="wf-head">
+        <div class="wf-card">
+          <div class="label">任务</div><div class="val" id="wfName"></div>
+          <div class="label">调度</div><div class="val" id="wfCron"></div>
+          <div class="label">下次执行</div><div class="val" id="wfNext"></div>
+          <div class="label">推送</div><div class="val" id="wfPush"></div>
+          <div class="label">自动发布</div><div class="val"><span class="badge human">关闭 · 强制人工确认</span></div>
+        </div>
+        <div class="wf-actions">
+          <select id="wfLookback">
+            <option value="7">回溯 7 天</option>
+            <option value="10" selected>回溯 10 天</option>
+            <option value="20">回溯 20 天</option>
+          </select>
+          <button class="btn primary" id="btnTrigger">立即执行</button>
+        </div>
+      </div>
+      <div class="section-title">执行管线</div>
+      <div id="wfStages"></div>
+      <div class="section-title">执行历史</div>
+      <div id="wfRuns"></div>
+    </section>
+
+    <!-- ============ 简报审校 ============ -->
+    <section id="tab-review" style="display:none">
+      <div class="filters">
+        <select id="briefPick"></select>
+        <span id="briefStatus"></span>
+        <span class="spacer"></span>
+        <input id="reviewer" placeholder="复核人" value="研究员 · 孙勃帆" style="width:170px">
+        <button class="btn primary" id="btnPublish">确认发布</button>
+      </div>
+      <div class="hitl-tip">Human-in-the-loop：AI 只产出初稿。请逐段 <b>采纳 / 修改 / 驳回</b>，全部审校完成后方可发布；驳回段落会进入 Bad Case 池用于后续复盘。</div>
+      <div id="briefBody"></div>
+      <div class="section-title">修订留痕</div>
+      <div id="briefHistory"></div>
+      <div class="section-title">Bad Case 池（驳回记录）</div>
+      <div id="bcList"></div>
+    </section>
+
+    <!-- ============ 设计与边界 ============ -->
+    <section id="tab-design" style="display:none">
+      <div class="boundary-box">
+        <b>Agent 与人工的边界</b>：数据检索、指标计算、去重、引用溯源等确定性工作由 Agent 完成；
+        <b>盈利预测假设是否采纳、买卖决策、非标准化信息的定性判断</b>必须由研究员确认 ——
+        Agent 输出的简报一律为「初稿」状态，未确认不得发布。
+      </div>
+      <div class="section-title">系统架构</div>
+      <div id="archDiagram"></div>
+      <div class="section-title">四大场景 → 能力映射</div>
+      <div class="cards4" id="sceneCards"></div>
+      <div class="section-title">置信度评分口径</div>
+      <div class="cards" id="confCards"></div>
+      <div class="section-title">产品化设计要点</div>
+      <div class="cards" id="designCards"></div>
+    </section>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script src="data.js"></script>
+<script src="rag.js"></script>
+<script src="tools.js"></script>
+<script src="workflow.js"></script>
+<script src="agent.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
